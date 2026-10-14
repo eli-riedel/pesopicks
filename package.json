@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node src/lib/engine.test.js",
+    "deploy": "node src/lib/engine.test.js && vite build && touch dist/.nojekyll && sh scripts/deploy.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

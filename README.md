@@ -20,4 +20,8 @@ With no Supabase env vars the app runs in **local demo mode** (data saved in the
 
 ## Deploy
 
-Pushing to `main` builds and publishes to GitHub Pages (`.github/workflows/deploy.yml`).
+```bash
+npm run deploy
+```
+
+Builds and pushes `dist/` to the `gh-pages` branch, which GitHub Pages serves at https://eli-riedel.github.io/pesopicks/
