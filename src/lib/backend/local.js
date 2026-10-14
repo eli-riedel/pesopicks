@@ -110,7 +110,7 @@ export const localBackend = {
         id: uid(),
         name,
         pin: pinHash,
-        isAdmin: first,
+        isAdmin: true,
         balance: Number(db.settings.startingBalance),
         playerId: null,
         avatar: null,

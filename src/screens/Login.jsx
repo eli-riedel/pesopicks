@@ -57,9 +57,9 @@ export default function Login() {
             <input className="inp" value={f.code} onChange={(e) => set({ code: e.target.value.toUpperCase() })} placeholder="From your commissioner" required />
           </div>
         )}
-        {mode === 'signup' && first && (
+        {mode === 'signup' && (
           <div className="hint" style={{ marginBottom: 14 }}>
-            You’re first in — you’ll be the <b style={{ color: 'var(--text)' }}>Commissioner</b> who sets the lines.
+            Everyone’s a <b style={{ color: 'var(--text)' }}>Commissioner</b> — anyone in the crew can set and grade lines.
           </div>
         )}
         <button className="btn" type="submit" disabled={busy || f.pin.length !== 4 || !f.name.trim()} style={{ marginTop: 8 }}>
