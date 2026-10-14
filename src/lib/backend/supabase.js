@@ -16,6 +16,8 @@ const mapProp = (r) => ({
   status: r.status,
   current: Number(r.current),
   result: r.result == null ? null : Number(r.result),
+  recurring: r.recurring,
+  parentId: r.parent_id,
   createdAt: r.created_at,
 })
 const mapUser = (r) => ({
@@ -53,10 +55,19 @@ export function createSupabaseBackend(url, key) {
     return data
   }
 
+  // Spawn tomorrow's copies of recurring lines at most once a minute per device
+  let lastRoll = 0
+  const roll = () => {
+    if (Date.now() - lastRoll < 60000) return
+    lastRoll = Date.now()
+    sb.rpc('pp_roll_recurring').then(() => {})
+  }
+
   return {
     mode: 'supabase',
 
     async load() {
+      roll()
       const [settings, players, props, users, lineups] = await Promise.all([
         sb.from('settings').select('trip_name,starting_balance').eq('id', 1).single().then(must),
         sb.from('players').select('*').order('created_at').then(must),
@@ -103,6 +114,8 @@ export function createSupabaseBackend(url, key) {
         p_amount: amount,
         p_picks: picks.map((p) => ({ propId: p.propId, side: p.side })),
       }),
+    submitSingles: (token, { amount, picks }) =>
+      rpc('pp_submit_singles', { p_token: token, p_amount: amount, p_picks: picks.map((p) => ({ propId: p.propId, side: p.side })) }),
     updateProfile: (token, { avatar }) => rpc('pp_update_profile', { p_token: token, p_avatar: avatar }),
 
     saveSettings: (token, s) => rpc('pp_save_settings', { p_token: token, p: s }),

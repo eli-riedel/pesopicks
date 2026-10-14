@@ -1,6 +1,6 @@
 // Run with: node src/lib/engine.test.js
 import assert from 'node:assert/strict'
-import { settleLineup, maxMultiplier, validateLineup, parseBulk } from './engine.js'
+import { settleLineup, maxMultiplier, validateLineup, parseBulk, resolveMode, singlesToWin } from './engine.js'
 
 const P = (id, status, result, kind = 'standard', line = 2.5) => ({ id, status, result, line, kind, playerId: 'pl' + id })
 const pk = (id, side, kind = 'standard', line = 2.5) => ({ propId: id, playerId: 'pl' + id, side, line, kind })
@@ -43,6 +43,18 @@ assert.equal(validateLineup([pk('a', 'less', 'goblin'), pk('b', 'more')], 'power
 assert.equal(validateLineup([pk('a', 'more'), pk('b', 'more')], 'flex', 10, 100), 'Flex Play needs 3+ picks')
 assert.equal(validateLineup([pk('a', 'more'), pk('b', 'more')], 'power', 200, 100), 'Not enough balance')
 assert.equal(validateLineup([pk('a', 'more'), pk('b', 'more')], 'power', 20, 100), null)
+// Singles: even money, void refunds, kinds apply, one-per-person not enforced
+check(settleLineup({ mode: 'single', amount: 10, picks: [pk('a', 'more')] }, by(win('a'))), 'won', 20)
+check(settleLineup({ mode: 'single', amount: 10, picks: [pk('a', 'less')] }, by(win('a'))), 'lost', 0)
+check(settleLineup({ mode: 'single', amount: 10, picks: [pk('a', 'more')] }, by(voided('a'))), 'refunded', 10)
+check(settleLineup({ mode: 'single', amount: 10, picks: [pk('a', 'more', 'demon')] }, by(P('a', 'final', 3, 'demon'))), 'won', 30)
+assert.equal(settleLineup({ mode: 'single', amount: 10, picks: [pk('a', 'more')] }, by(open('a'))).status, 'open')
+assert.equal(resolveMode('power', 1), 'single')
+assert.equal(resolveMode('flex', 2), 'power')
+assert.equal(resolveMode('single', 3), 'single')
+assert.equal(singlesToWin(10, [pk('a', 'more'), pk('b', 'more', 'goblin')]), 36)
+assert.equal(validateLineup([pk('a', 'more'), { ...pk('b', 'more'), playerId: 'pla' }], 'single', 10, 100), null)
+assert.equal(validateLineup([pk('a', 'more'), pk('b', 'more')], 'single', 60, 100), 'Not enough balance')
 // Bulk paste
 const b = parseBulk('Byron | Says "that\'s awesome" | 2.5 | Quotes\nNobody | x | 1\nByron | sleep | abc', [{ id: '1', name: 'Byron' }])
 assert.equal(b.props.length, 1)

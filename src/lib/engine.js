@@ -15,6 +15,9 @@ export const FLEX = {
 // Like PrizePicks, both are "More" only.
 export const KIND_FACTOR = { standard: 1, goblin: 0.8, demon: 1.5 }
 
+// Singles: each pick is its own bet at even money (x Goblin/Demon factor).
+export const SINGLE_MULT = 2
+
 export const MIN_PICKS = 2
 export const MAX_PICKS = 6
 
@@ -31,7 +34,21 @@ export function effectiveMode(mode, n) {
   return mode
 }
 
+// The play type a slip actually submits as: one pick is always a single,
+// and Flex needs 3+ picks (otherwise Power).
+export function resolveMode(mode, n) {
+  if (n === 1 || mode === 'single') return 'single'
+  if (mode === 'flex' && n < 3) return 'power'
+  return mode
+}
+
+export const singleMultiplier = (pick) => round2(SINGLE_MULT * (KIND_FACTOR[pick.kind] || 1))
+
+// Total paid if every single hits (amount is per pick)
+export const singlesToWin = (amount, picks) => round2(picks.reduce((t, p) => t + amount * singleMultiplier(p), 0))
+
 export function maxMultiplier(mode, picks) {
+  if (mode === 'single') return picks.length === 1 ? singleMultiplier(picks[0]) : 1
   const n = picks.length
   const m = effectiveMode(mode, n)
   if (m === 'refund') return 1
@@ -49,6 +66,13 @@ export function flexTiers(n, picks = []) {
 
 export function validateLineup(picks, mode, amount, balance) {
   const n = picks.length
+  if (mode === 'single') {
+    if (n < 1) return 'Add a pick'
+    if (picks.some((p) => p.kind !== 'standard' && p.side !== 'more')) return 'Goblins & Demons are More only'
+    if (!(amount > 0)) return 'Enter an amount'
+    if (amount * n > balance) return 'Not enough balance'
+    return null
+  }
   if (n < MIN_PICKS) return `Add at least ${MIN_PICKS} picks`
   if (n > MAX_PICKS) return `Max ${MAX_PICKS} picks per lineup`
   if (mode === 'flex' && n < 3) return 'Flex Play needs 3+ picks'
@@ -97,6 +121,15 @@ export function settleLineup(lineup, propsById) {
   const losses = results.filter((r) => r === 'loss').length
   const pending = results.filter((r) => r === 'pending').length
   const amount = Number(lineup.amount)
+
+  if (lineup.mode === 'single') {
+    const r = results[0]
+    if (r === 'void') return { status: 'refunded', payout: round2(amount), results }
+    if (r === 'loss') return { status: 'lost', payout: 0, results }
+    if (r === 'pending') return { status: 'open', payout: 0, results }
+    return { status: 'won', payout: round2(amount * singleMultiplier(lineup.picks[0])), results }
+  }
+
   const mode = effectiveMode(lineup.mode, n)
 
   if (mode === 'power' && losses > 0) return { status: 'lost', payout: 0, results }
@@ -115,6 +148,7 @@ export function settleLineup(lineup, propsById) {
 }
 
 export function lineupTitle(lineup) {
+  if (lineup.mode === 'single') return 'Single Pick'
   return `${lineup.picks.length}-Pick ${lineup.mode === 'flex' ? 'Flex' : 'Power'} Play`
 }
 
@@ -140,7 +174,7 @@ export const fmtLine = (n) => {
 }
 
 // Parse bulk-paste lines:  Name | Prop | Line | Category | Kind | Start | Event
-export function parseBulk(text, players) {
+export function parseBulk(text, players, recurring = false) {
   const byName = new Map()
   players.forEach((p) => {
     byName.set(p.name.toLowerCase(), p)
@@ -174,6 +208,7 @@ export function parseBulk(text, players) {
         kind: ['goblin', 'demon'].includes(k) ? k : 'standard',
         startsAt,
         event: event || '',
+        recurring,
       })
     })
   return { props: out, errors }

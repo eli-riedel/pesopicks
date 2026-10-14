@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './lib/backend'
-import { settleLineup, MAX_PICKS, propIsPickable } from './lib/engine'
+import { settleLineup, MAX_PICKS, propIsPickable, resolveMode } from './lib/engine'
+
+const MAX_SINGLES = 12
 
 const Ctx = createContext(null)
 export const useStore = () => useContext(Ctx)
@@ -130,12 +132,15 @@ export function StoreProvider({ children }) {
           if (existing.side === side) return { ...s, picks: s.picks.filter((p) => p.propId !== prop.id) }
           return { ...s, picks: s.picks.map((p) => (p.propId === prop.id ? { ...p, side } : p)) }
         }
-        const samePlayer = s.picks.find((p) => p.playerId === prop.playerId)
+        const singles = s.mode === 'single'
+        // Lineups allow one pick per person (PrizePicks rule); singles are separate bets
+        const samePlayer = !singles && s.picks.find((p) => p.playerId === prop.playerId)
         if (samePlayer) {
           return { ...s, picks: s.picks.map((p) => (p === samePlayer ? { propId: prop.id, playerId: prop.playerId, side } : p)) }
         }
-        if (s.picks.length >= MAX_PICKS) {
-          showToast(`Max ${MAX_PICKS} picks per lineup`)
+        const max = singles ? MAX_SINGLES : MAX_PICKS
+        if (s.picks.length >= max) {
+          showToast(singles ? `Max ${MAX_SINGLES} singles at once` : `Max ${MAX_PICKS} picks per lineup`)
           return s
         }
         return { ...s, picks: [...s.picks, { propId: prop.id, playerId: prop.playerId, side }] }
@@ -152,9 +157,14 @@ export function StoreProvider({ children }) {
   )
 
   const submitLineup = useCallback(async () => {
-    // Flex needs 3+ picks; with fewer the builder shows (and we submit) Power
-    const mode = slip.mode === 'flex' && slip.picks.length < 3 ? 'power' : slip.mode
-    const r = await run(() => api.submitLineup(session.token, { mode, amount: Number(slip.amount), picks: slip.picks }))
+    // Submit as the play type the builder shows (1 pick = single, Flex needs 3+)
+    const mode = resolveMode(slip.mode, slip.picks.length)
+    const amount = Number(slip.amount)
+    const r = await run(() =>
+      mode === 'single'
+        ? api.submitSingles(session.token, { amount, picks: slip.picks })
+        : api.submitLineup(session.token, { mode, amount, picks: slip.picks }),
+    )
     if (r) clearSlip()
     return r
   }, [run, session, slip, clearSlip])
@@ -186,6 +196,8 @@ export function StoreProvider({ children }) {
       addProps: (list) => run(() => api.addProps(tok, list), `${list.length} props added`),
       deleteProp: (id) => run(() => api.deleteProp(tok, id), 'Prop deleted'),
       setCurrent: (id, current) => run(() => api.updatePropState(tok, id, { current })),
+      setRecurring: (id, recurring) =>
+        run(() => api.updatePropState(tok, id, { recurring }), recurring ? 'Repeats daily 🔁' : 'Stopped repeating'),
       setLocked: (id, locked) => run(() => api.updatePropState(tok, id, { status: locked ? 'locked' : 'open' })),
       grade: (id, result) =>
         run(async () => {

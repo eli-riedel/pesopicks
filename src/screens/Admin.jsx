@@ -29,7 +29,7 @@ const quickTime = (hour, dayOffset = 0) => {
   return d.toISOString()
 }
 
-const blankProp = { id: null, playerId: '', stat: '', line: 2.5, category: 'Quotes', kind: 'standard', event: '', startsAt: null }
+const blankProp = { id: null, playerId: '', stat: '', line: 2.5, category: 'Quotes', kind: 'standard', event: '', startsAt: null, recurring: false }
 
 function PropForm({ players, editing, onDone }) {
   const { admin, data } = useStore()
@@ -48,7 +48,7 @@ function PropForm({ players, editing, onDone }) {
     const ok = await admin.saveProp({ ...f, line: Number(f.line), id: f.id || undefined })
     if (ok) {
       // keep friend/category/time for rapid entry
-      setF((x) => ({ ...blankProp, playerId: x.playerId, category: x.category, startsAt: x.startsAt, event: x.event }))
+      setF((x) => ({ ...blankProp, playerId: x.playerId, category: x.category, startsAt: x.startsAt, event: x.event, recurring: x.recurring }))
       onDone?.()
       statRef.current?.focus()
     }
@@ -141,6 +141,13 @@ function PropForm({ players, editing, onDone }) {
           </button>
         </div>
       </div>
+      <button type="button" className={`repeat ${f.recurring ? 'on' : ''}`} onClick={() => set({ recurring: !f.recurring })} aria-pressed={!!f.recurring}>
+        <span className="sw" />
+        <span>
+          <b>🔁 Repeat daily</b>
+          <span>A fresh copy goes up for tomorrow once this one locks or gets graded.</span>
+        </span>
+      </button>
       <button className="btn" type="submit" disabled={!f.playerId || !f.stat}>
         {f.id ? 'Save changes' : 'Add to board'}
       </button>
@@ -158,7 +165,8 @@ function LinesTab() {
   const [editing, setEditing] = useState(null)
   const [bulk, setBulk] = useState('')
   const [showBulk, setShowBulk] = useState(false)
-  const parsed = useMemo(() => (bulk.trim() ? parseBulk(bulk, data.players) : null), [bulk, data.players])
+  const [bulkRepeat, setBulkRepeat] = useState(false)
+  const parsed = useMemo(() => (bulk.trim() ? parseBulk(bulk, data.players, bulkRepeat) : null), [bulk, data.players, bulkRepeat])
   const active = data.props.filter((p) => p.status === 'open' || p.status === 'locked')
 
   return (
@@ -181,6 +189,12 @@ function LinesTab() {
             onChange={(e) => setBulk(e.target.value)}
             placeholder={'Byron | Says "that\'s awesome" | 2.5 | Quotes\nJake | Beers before dinner | 4.5 | Drinks | standard | 2026-10-14 19:00 | Pool bar\nSam | Gets lost (Yes = More) | 0.5 | Chaos'}
           />
+          <button type="button" className={`repeat ${bulkRepeat ? 'on' : ''}`} style={{ marginTop: 10 }} onClick={() => setBulkRepeat((v) => !v)} aria-pressed={bulkRepeat}>
+            <span className="sw" />
+            <span>
+              <b>🔁 Repeat all of these daily</b>
+            </span>
+          </button>
           {parsed && (
             <div className="hint">
               {parsed.props.length} ready{parsed.errors.length ? ` · ${parsed.errors.length} problems` : ''}
@@ -218,6 +232,7 @@ function LinesTab() {
                 </b>
                 <span>
                   {catIcon(p.category)} {p.category} · {fmtTime(p.startsAt)} · {pickCounts[p.id] || 0} picks
+                  {p.recurring ? ' · 🔁 daily' : ''}
                 </span>
               </div>
               <KindBadge kind={p.kind} size={20} />
@@ -229,6 +244,9 @@ function LinesTab() {
                   e.currentTarget.closest('.sheet')?.scrollTo({ top: 0, behavior: 'smooth' })
                 }}>
                 Edit
+              </button>
+              <button className="mini" onClick={() => admin.setRecurring(p.id, !p.recurring)}>
+                {p.recurring ? 'Stop repeating' : '🔁 Repeat daily'}
               </button>
               <button className="mini r" onClick={() => confirm('Delete this prop?') && admin.deleteProp(p.id)}>
                 Delete

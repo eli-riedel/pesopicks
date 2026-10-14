@@ -1,6 +1,6 @@
 // Single-device backend backed by localStorage. Same API as the Supabase backend,
 // used for demos and when no Supabase project is configured.
-import { validateLineup, propIsPickable, maxMultiplier, round2 } from '../engine'
+import { validateLineup, propIsPickable, maxMultiplier, singleMultiplier, round2 } from '../engine'
 
 const KEY = 'pesopicks-db-v1'
 const listeners = new Set()
@@ -61,6 +61,27 @@ function requireAdmin(db, token) {
   return u
 }
 
+// Create tomorrow's copy of every recurring prop that is no longer pickable (idempotent).
+function rollRecurring(db) {
+  const now = Date.now()
+  let added = 0
+  for (const p of [...db.props]) {
+    if (!p.recurring) continue
+    const done = p.status !== 'open' || (p.startsAt && new Date(p.startsAt).getTime() <= now)
+    if (!done || db.props.some((c) => c.parentId === p.id)) continue
+    let startsAt = null
+    if (p.startsAt) {
+      const t = new Date(p.startsAt).getTime()
+      const days = Math.max(1, Math.ceil((now - t) / 86400000))
+      startsAt = new Date(t + days * 86400000).toISOString()
+    }
+    const { playerId, stat, category, line, kind, event } = p
+    db.props.push({ playerId, stat, category, line, kind, event, startsAt, recurring: true, parentId: p.id, status: 'open', current: 0, result: null, id: uid(), createdAt: new Date().toISOString() })
+    added++
+  }
+  return added
+}
+
 function mutate(fn) {
   const db = read()
   const out = fn(db)
@@ -72,7 +93,11 @@ export const localBackend = {
   mode: 'local',
 
   async load() {
-    const db = read()
+    let db = read()
+    if (rollRecurring(db)) {
+      write(db)
+      db = read()
+    }
     return {
       settings: { tripName: db.settings.tripName, startingBalance: db.settings.startingBalance },
       players: db.players,
@@ -169,6 +194,36 @@ export const localBackend = {
     })
   },
 
+  async submitSingles(token, { amount, picks }) {
+    return mutate((db) => {
+      const user = requireUser(db, token)
+      amount = round2(Number(amount))
+      const full = picks.map((p) => {
+        const prop = db.props.find((x) => x.id === p.propId)
+        if (!prop || !propIsPickable(prop)) throw new Error('A pick is no longer available')
+        return { propId: prop.id, playerId: prop.playerId, side: p.side, line: prop.line, kind: prop.kind }
+      })
+      const err = validateLineup(full, 'single', amount, user.balance)
+      if (err) throw new Error(err)
+      user.balance = round2(user.balance - amount * full.length)
+      full.forEach((pick) =>
+        db.lineups.unshift({
+          id: uid(),
+          userId: user.id,
+          mode: 'single',
+          amount,
+          picks: [pick],
+          multiplier: singleMultiplier(pick),
+          status: 'open',
+          payout: 0,
+          createdAt: new Date().toISOString(),
+          settledAt: null,
+        }),
+      )
+      return full.length
+    })
+  },
+
   async updateProfile(token, { avatar }) {
     mutate((db) => {
       const u = requireUser(db, token)
@@ -216,9 +271,10 @@ export const localBackend = {
       if (p.id) {
         const i = db.props.findIndex((x) => x.id === p.id)
         db.props[i] = { ...db.props[i], ...p }
+        rollRecurring(db)
         return db.props[i]
       }
-      const np = { status: 'open', current: 0, result: null, kind: 'standard', ...p, id: uid(), createdAt: new Date().toISOString() }
+      const np = { status: 'open', current: 0, result: null, kind: 'standard', recurring: false, ...p, id: uid(), createdAt: new Date().toISOString() }
       db.props.push(np)
       return np
     })
@@ -243,6 +299,7 @@ export const localBackend = {
       requireAdmin(db, token)
       const p = db.props.find((x) => x.id === id)
       Object.assign(p, patch)
+      rollRecurring(db)
     })
   },
 

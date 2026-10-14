@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../store'
-import { POWER, FLEX, flexTiers, maxMultiplier, validateLineup, fmtLine, fmtTime, money, round2, kindFactor } from '../lib/engine'
+import { POWER, FLEX, flexTiers, maxMultiplier, validateLineup, fmtLine, fmtTime, money, round2, kindFactor, resolveMode, singlesToWin, SINGLE_MULT } from '../lib/engine'
 import { Avatar, Confetti, Icon, KindBadge, catIcon, useLockBody } from '../components/ui'
 
 export function SlipBar({ onOpen }) {
@@ -9,8 +9,13 @@ export function SlipBar({ onOpen }) {
   if (!picks.length) return null
   const full = picks.map((p) => ({ ...p, kind: propsById[p.propId].kind }))
   const n = picks.length
-  const mode = slip.mode === 'flex' && n >= 3 ? 'Flex' : 'Power'
-  const sub = n < 2 ? 'Add 1 more pick to play' : `${mode} Play · up to ${maxMultiplier(mode.toLowerCase(), full)}X`
+  const mode = resolveMode(slip.mode, n)
+  const sub =
+    mode === 'single'
+      ? n === 1
+        ? `Single Pick · ${maxMultiplier('single', full)}X · add more for a lineup`
+        : `${n} Singles · ${SINGLE_MULT}X each`
+      : `${mode === 'flex' ? 'Flex' : 'Power'} Play · up to ${maxMultiplier(mode, full)}X`
   return (
     <button className="slipbar" onClick={onOpen}>
       <div className="stack">
@@ -46,16 +51,17 @@ export default function LineupSheet({ onClose, onViewLineups }) {
     [slip.picks, propsById, playersById],
   )
   const n = picks.length
-  const mode = slip.mode === 'flex' && n < 3 ? 'power' : slip.mode
+  const mode = resolveMode(slip.mode, n)
+  const single = mode === 'single'
   const amount = Number(slip.amount) || 0
-  const mult = n >= 2 ? maxMultiplier(mode, picks) : 0
-  const toWin = round2(amount * mult)
+  const total = single ? round2(amount * n) : amount
+  const toWin = single ? singlesToWin(amount, picks) : round2(amount * maxMultiplier(mode, picks))
   const error = n === 0 ? null : validateLineup(picks, mode, amount, me?.balance ?? 0)
   const f = kindFactor(picks)
 
   const submit = async () => {
     setBusy(true)
-    const snapshot = { n, mode, amount, toWin }
+    const snapshot = { n, mode, amount: total, toWin }
     const ok = await submitLineup()
     setBusy(false)
     if (ok) setDone(snapshot)
@@ -67,10 +73,12 @@ export default function LineupSheet({ onClose, onViewLineups }) {
         <Confetti />
         <div className="modal">
           <div className="big">🎉</div>
-          <h3>Lineup Submitted!</h3>
+          <h3>{done.mode === 'single' ? (done.n === 1 ? 'Pick Submitted!' : `${done.n} Singles Submitted!`) : 'Lineup Submitted!'}</h3>
           <p>
-            {done.n}-Pick {done.mode === 'flex' ? 'Flex' : 'Power'} Play · {money(done.amount)} to pay{' '}
-            <b style={{ color: 'var(--lime)' }}>{money(done.toWin)}</b>
+            {done.mode === 'single'
+              ? `${done.n === 1 ? 'Single Pick' : `${done.n} Singles`}`
+              : `${done.n}-Pick ${done.mode === 'flex' ? 'Flex' : 'Power'} Play`}{' '}
+            · {money(done.amount)} to pay <b style={{ color: 'var(--lime)' }}>{money(done.toWin)}</b>
           </p>
           <button className="btn" onClick={onViewLineups}>
             View My Lineups
@@ -140,18 +148,18 @@ export default function LineupSheet({ onClose, onViewLineups }) {
 
             <div className="label">Choose Play Type</div>
             <div className="ptypes">
-              <button className={`ptype ${mode === 'power' ? 'on' : ''}`} onClick={() => setSlipField({ mode: 'power' })}>
+              <button className={`ptype ${mode === 'power' ? 'on' : ''}`} disabled={n < 2} onClick={() => setSlipField({ mode: 'power' })}>
                 <div className="h">
                   Power Play <span className="radio" />
                 </div>
-                <div className="big">{n >= 2 ? `${round2(POWER[n] * f)}X` : '—'}</div>
-                <div className="d">All picks must win. Highest payout.</div>
+                <div className="big">{n >= 2 && POWER[n] ? `${round2(POWER[n] * f)}X` : '—'}</div>
+                <div className="d">{n >= 2 ? 'All picks must win. Highest payout.' : 'Add 2+ picks to combine them.'}</div>
               </button>
               <button className={`ptype ${mode === 'flex' ? 'on' : ''}`} disabled={n < 3} onClick={() => setSlipField({ mode: 'flex' })}>
                 <div className="h">
                   Flex Play <span className="radio" />
                 </div>
-                {n >= 3 ? (
+                {n >= 3 && FLEX[n] ? (
                   <>
                     <div className="big">{round2(FLEX[n][n] * f)}X</div>
                     {flexTiers(n, picks)
@@ -169,9 +177,18 @@ export default function LineupSheet({ onClose, onViewLineups }) {
                   <div className="d">Add 3+ picks. Win even if you miss one.</div>
                 )}
               </button>
+              <button className={`ptype wide ${single ? 'on' : ''}`} onClick={() => setSlipField({ mode: 'single' })}>
+                <div className="h">
+                  {n === 1 ? 'Single Pick' : 'Singles'} <span className="radio" />
+                </div>
+                <div className="row">
+                  <div className="big">{n === 1 ? `${maxMultiplier('single', picks)}X` : `${SINGLE_MULT}X`}</div>
+                  <div className="d">{n === 1 ? 'Bet this one line on its own.' : `Bet each pick on its own — ${n} separate bets, ${SINGLE_MULT}X each.`}</div>
+                </div>
+              </button>
             </div>
 
-            <div className="label">Entry Amount</div>
+            <div className="label">{single && n > 1 ? 'Amount per pick' : 'Entry Amount'}</div>
             <div className="amount">
               <span>$</span>
               <input
@@ -188,18 +205,18 @@ export default function LineupSheet({ onClose, onViewLineups }) {
                   ${v}
                 </button>
               ))}
-              <button className={me && amount === me.balance ? 'on' : ''} onClick={() => setSlipField({ amount: me ? Math.floor(me.balance * 100) / 100 : 0 })}>
+              <button onClick={() => setSlipField({ amount: me ? Math.floor((me.balance / (single ? n : 1)) * 100) / 100 : 0 })}>
                 Max
               </button>
             </div>
 
             <div className="towin">
               <div>
-                <div className="k">Entry</div>
-                <div className="v">{money(amount)}</div>
+                <div className="k">{single && n > 1 ? `Total (${n} × ${money(amount)})` : 'Entry'}</div>
+                <div className="v">{money(total)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div className="k">To Win</div>
+                <div className="k">{single && n > 1 ? 'If all hit' : 'To Win'}</div>
                 <div className="v lime">{money(toWin)}</div>
               </div>
             </div>
@@ -211,7 +228,7 @@ export default function LineupSheet({ onClose, onViewLineups }) {
         <div className="cta-wrap">
           {error && <div className="warn">{error}</div>}
           <button className="btn" disabled={!!error || busy} onClick={submit}>
-            {busy ? 'Submitting…' : `Submit Lineup${!error ? ` · ${money(amount)}` : ''}`}
+            {busy ? 'Submitting…' : `${single ? (n === 1 ? 'Submit Pick' : `Submit ${n} Singles`) : 'Submit Lineup'}${!error ? ` · ${money(total)}` : ''}`}
           </button>
         </div>
       )}

@@ -146,9 +146,9 @@ export function LineupDetail({ lineup, onClose, owner }) {
           <div style={{ padding: '0 16px' }}>
             <div className="kv">
               <span>Play type</span>
-              <span>{lineup.mode === 'flex' ? 'Flex Play' : 'Power Play'}</span>
+              <span>{lineup.mode === 'single' ? 'Single Pick' : lineup.mode === 'flex' ? 'Flex Play' : 'Power Play'}</span>
             </div>
-            {eff !== lineup.mode && live < n && (
+            {lineup.mode !== 'single' && eff !== lineup.mode && live < n && (
               <div className="kv">
                 <span>Reverted to</span>
                 <span>{eff === 'refund' ? 'Refund' : `${live}-Pick ${eff === 'flex' ? 'Flex' : 'Power'}`}</span>
@@ -162,7 +162,12 @@ export function LineupDetail({ lineup, onClose, owner }) {
               <span>Max payout</span>
               <span>{money(lineup.amount * lineup.multiplier)}</span>
             </div>
-            {lineup.mode === 'power' ? (
+            {lineup.mode === 'single' ? (
+              <div className="kv">
+                <span>Correct</span>
+                <span>{lineup.multiplier}X</span>
+              </div>
+            ) : lineup.mode === 'power' ? (
               <div className="kv">
                 <span>{n}/{n} correct</span>
                 <span>{POWER[n]}X</span>
